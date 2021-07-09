@@ -1,0 +1,46 @@
+#!/bin/bash +x
+# This script tries to connect to nodes, to check which are publicly available.
+
+# Parameters and locations
+DEAMON=/home/verus/bin/verus
+BITPEERS=/home/verus/bin/bitpeers
+PEERS=/home/verus/.komodo/VRSC/peers.dat
+CHAIN=VRSC
+
+# Dependency: jq (command-line json parser/editor)
+if ! command -v jq &>/dev/null ; then
+  echo "jq not found. please install using your package manager."
+  exit 1
+fi
+# Dependency: bitpeers (go-compiled binary to read `peers.dat`)
+if [ -z "$BITPEERS" ]; then
+    echo "No coin supplied to create Bootstrap for."
+    exit 1
+fi
+
+# generate list of addresses that were reported active the past 24 hours (by all nodes connected)
+TIME=$(date -d "now - 1 day" +"%s")
+NEWNODES=$($BITPEERS --filepath $PEERS | jq ".new_addr_info | map (select (.address.time >= $TIME)) | map (.address.ip)" | jq -r .[])
+# crawl address list by trying a connection to them
+for N in $NEWNODES
+do
+  echo "$DEAMON addnode $N onetry"
+  $DEAMON addnode $N onetry
+done
+
+# generate list of addresses that the node connected to in the past 24 hour
+KNOWNNODES=$($BITPEERS --filepath $PEERS | jq ".tried_addr_info | map (select (.address.time >= $TIME)) | map (.address.ip)" | jq -r .[])
+# crawl address list by trying a connection to them
+for N in $KNOWNNODES
+do
+  echo "$DEAMON addnode $N onetry"
+  $DEAMON addnode $N onetry
+done
+
+# Count the total number of peers that successfully allowed connecting
+NODENUMBER=$($BITPEERS --filepath $PEERS | jq ".tried_addr_info | map (select (.address.time >= $TIME)) | map (.address.ip)" | jq -s ".[] | length")
+echo "Publicly available peers on chain $CHAIN the past 24 hours is: $NODENUMBER" > $CHAIN-peers-connectable.txt
+
+# Count the total number of peers that have been connected, but do not allow incoming connections
+NODENUMBER=$($BITPEERS --filepath $PEERS | jq ".new_addr_info | map (select (.address.time >= $TIME)) | map (.address.ip)" | jq -s ".[] | length")
+echo "Non-Public peers on chain $CHAIN the past 24 hours is: $NODENUMBER" > $CHAIN-peers-not-connectable.txt
